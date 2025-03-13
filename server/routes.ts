@@ -11,6 +11,14 @@ import {
   mockCategories
 } from "./api/upstart";
 import { v4 as uuidv4 } from 'uuid';
+import 'express-session';
+
+// Extend the Express Request type to include session
+declare module 'express-session' {
+  interface SessionData {
+    id: string;
+  }
+}
 
 // Helper functions
 const getSessionId = (req: Request): string => {
