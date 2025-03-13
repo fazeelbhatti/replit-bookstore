@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { type UpstartBooksResponse, type UpstartBook, type UpstartCategoriesResponse } from '@shared/types';
 
-// Ideally this would be in an environment variable
+// Upstart Commerce API configuration
 const UPSTART_API_BASE_URL = process.env.UPSTART_API_URL || 'https://api.upstartcommerce.com/v1';
 const UPSTART_API_KEY = process.env.UPSTART_API_KEY || '';
 
@@ -10,7 +10,8 @@ const upstartApi = axios.create({
   baseURL: UPSTART_API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${UPSTART_API_KEY}`
+    'Authorization': `Bearer ${UPSTART_API_KEY}`,
+    'Accept': 'application/json'
   }
 });
 
@@ -19,6 +20,15 @@ upstartApi.interceptors.response.use(
   response => response,
   error => {
     console.error('Upstart API Error:', error.response?.data || error.message);
+    // Log more details in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Request that caused error:', {
+        method: error.config?.method,
+        url: error.config?.url,
+        params: error.config?.params,
+        data: error.config?.data
+      });
+    }
     throw error;
   }
 );
@@ -32,19 +42,53 @@ export async function getBooks(options?: {
   sort?: string;
 }): Promise<UpstartBooksResponse> {
   try {
-    const params = new URLSearchParams();
+    // Build query parameters according to Upstart Commerce API specifications
+    const params: any = {
+      page: options?.page || 1,
+      size: options?.limit || 12
+    };
     
-    if (options?.page) params.append('page', options.page.toString());
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.category) params.append('category', options.category);
-    if (options?.search) params.append('q', options.search);
-    if (options?.sort) params.append('sort', options.sort);
+    // Handle filters
+    if (options?.category && options.category !== 'all') {
+      params.filter = `category.id:${options.category}`;
+    }
     
-    const response = await upstartApi.get<UpstartBooksResponse>('/books', { params });
+    // Handle search
+    if (options?.search) {
+      params.q = options.search;
+    }
+    
+    // Handle sorting
+    if (options?.sort) {
+      switch (options.sort) {
+        case 'price-low-high':
+          params.sort = 'price.amount,asc';
+          break;
+        case 'price-high-low':
+          params.sort = 'price.amount,desc';
+          break;
+        case 'newest':
+          params.sort = 'attributes.publicationYear,desc';
+          break;
+        case 'rating':
+          params.sort = 'attributes.rating,desc';
+          break;
+        default:
+          // Default sorting by relevance or what Upstart recommends
+          params.sort = 'relevance';
+      }
+    }
+    
+    const response = await upstartApi.get<UpstartBooksResponse>('/catalog/products', { params });
     return response.data;
   } catch (error) {
-    // In a real implementation we might retry or handle different error cases
     console.error('Failed to fetch books from Upstart Commerce API', error);
+    
+    // Check if API key is missing
+    if (UPSTART_API_KEY === '') {
+      console.error('Missing Upstart API Key. Please provide a valid API key.');
+    }
+    
     // Return empty response structure for error case
     return {
       books: [],
@@ -61,10 +105,16 @@ export async function getBooks(options?: {
 // Get a single book by ID
 export async function getBookById(id: string): Promise<UpstartBook | null> {
   try {
-    const response = await upstartApi.get<{ book: UpstartBook }>(`/books/${id}`);
+    const response = await upstartApi.get<{ book: UpstartBook }>(`/catalog/products/${id}`);
     return response.data.book;
   } catch (error) {
     console.error(`Failed to fetch book with id ${id} from Upstart Commerce API`, error);
+    
+    // Check if API key is missing
+    if (UPSTART_API_KEY === '') {
+      console.error('Missing Upstart API Key. Please provide a valid API key.');
+    }
+    
     return null;
   }
 }
@@ -72,11 +122,45 @@ export async function getBookById(id: string): Promise<UpstartBook | null> {
 // Get all categories
 export async function getCategories(): Promise<UpstartCategoriesResponse> {
   try {
-    const response = await upstartApi.get<UpstartCategoriesResponse>('/categories');
+    const response = await upstartApi.get<UpstartCategoriesResponse>('/catalog/categories');
     return response.data;
   } catch (error) {
     console.error('Failed to fetch categories from Upstart Commerce API', error);
+    
+    // Check if API key is missing
+    if (UPSTART_API_KEY === '') {
+      console.error('Missing Upstart API Key. Please provide a valid API key.');
+    }
+    
     return { categories: [] };
+  }
+}
+
+// Search functionality
+export async function searchBooks(query: string, options?: {
+  page?: number;
+  limit?: number;
+}): Promise<UpstartBooksResponse> {
+  try {
+    const params: any = {
+      q: query,
+      page: options?.page || 1,
+      size: options?.limit || 12
+    };
+    
+    const response = await upstartApi.get<UpstartBooksResponse>('/catalog/search', { params });
+    return response.data;
+  } catch (error) {
+    console.error(`Failed to search books with query "${query}" from Upstart Commerce API`, error);
+    return {
+      books: [],
+      pagination: {
+        totalCount: 0,
+        pageSize: 0,
+        currentPage: 0,
+        totalPages: 0
+      }
+    };
   }
 }
 

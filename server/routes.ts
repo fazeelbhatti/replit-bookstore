@@ -38,71 +38,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const search = req.query.search as string;
       const sort = req.query.sort as string;
 
-      // In a real implementation, this would call the Upstart Commerce API
-      // const result = await getBooks({ page, limit, category, search, sort });
+      // Call the Upstart Commerce API
+      const result = await getBooks({ page, limit, category, search, sort });
       
-      // For development, we'll use mock data
-      const allBooks = [...mockBooks];
-      
-      // Apply filters
-      let filteredBooks = allBooks;
-      
-      if (category && category !== 'all') {
-        filteredBooks = filteredBooks.filter(book => 
-          book.categories.some(cat => cat.id === category)
-        );
-      }
-      
-      if (search) {
-        const searchLower = search.toLowerCase();
-        filteredBooks = filteredBooks.filter(book => 
-          book.title.toLowerCase().includes(searchLower) || 
-          book.author.toLowerCase().includes(searchLower)
-        );
-      }
-      
-      // Apply sorting
-      if (sort) {
-        switch (sort) {
-          case 'price-low-high':
-            filteredBooks.sort((a, b) => a.price.amount - b.price.amount);
-            break;
-          case 'price-high-low':
-            filteredBooks.sort((a, b) => b.price.amount - a.price.amount);
-            break;
-          case 'newest':
-            filteredBooks.sort((a, b) => 
-              (b.attributes.publicationYear || 0) - (a.attributes.publicationYear || 0)
-            );
-            break;
-          case 'rating':
-            filteredBooks.sort((a, b) => 
-              (b.attributes.rating || 0) - (a.attributes.rating || 0)
-            );
-            break;
-          // Default sorting is by popularity (best sellers first)
-          default:
-            filteredBooks.sort((a, b) => {
-              if (a.attributes.isBestSeller && !b.attributes.isBestSeller) return -1;
-              if (!a.attributes.isBestSeller && b.attributes.isBestSeller) return 1;
-              return (b.attributes.reviewCount || 0) - (a.attributes.reviewCount || 0);
-            });
+      // Use mock data as fallback if the API call returns no books and we need to develop
+      // without an API key temporarily
+      if (result.books.length === 0 && process.env.NODE_ENV !== 'production') {
+        console.warn('No books returned from API, using mock data for development');
+        
+        // Apply the same filters to mock data for development
+        let filteredBooks = [...mockBooks];
+        
+        if (category && category !== 'all') {
+          filteredBooks = filteredBooks.filter(book => 
+            book.categories.some(cat => cat.id === category)
+          );
         }
-      }
-      
-      // Pagination
-      const offset = (page - 1) * limit;
-      const paginatedBooks = filteredBooks.slice(offset, offset + limit);
-      
-      res.json({
-        books: paginatedBooks,
-        pagination: {
-          totalCount: filteredBooks.length,
-          pageSize: limit,
-          currentPage: page,
-          totalPages: Math.ceil(filteredBooks.length / limit)
+        
+        if (search) {
+          const searchLower = search.toLowerCase();
+          filteredBooks = filteredBooks.filter(book => 
+            book.title.toLowerCase().includes(searchLower) || 
+            book.author.toLowerCase().includes(searchLower)
+          );
         }
-      });
+        
+        // Apply sorting
+        if (sort) {
+          switch (sort) {
+            case 'price-low-high':
+              filteredBooks.sort((a, b) => a.price.amount - b.price.amount);
+              break;
+            case 'price-high-low':
+              filteredBooks.sort((a, b) => b.price.amount - a.price.amount);
+              break;
+            case 'newest':
+              filteredBooks.sort((a, b) => 
+                (b.attributes.publicationYear || 0) - (a.attributes.publicationYear || 0)
+              );
+              break;
+            case 'rating':
+              filteredBooks.sort((a, b) => 
+                (b.attributes.rating || 0) - (a.attributes.rating || 0)
+              );
+              break;
+            default:
+              filteredBooks.sort((a, b) => {
+                if (a.attributes.isBestSeller && !b.attributes.isBestSeller) return -1;
+                if (!a.attributes.isBestSeller && b.attributes.isBestSeller) return 1;
+                return (b.attributes.reviewCount || 0) - (a.attributes.reviewCount || 0);
+              });
+          }
+        }
+        
+        // Pagination
+        const offset = (page - 1) * limit;
+        const paginatedBooks = filteredBooks.slice(offset, offset + limit);
+        
+        res.json({
+          books: paginatedBooks,
+          pagination: {
+            totalCount: filteredBooks.length,
+            pageSize: limit,
+            currentPage: page,
+            totalPages: Math.ceil(filteredBooks.length / limit)
+          }
+        });
+      } else {
+        // Return the actual API response
+        res.json(result);
+      }
     } catch (error) {
       console.error("Error fetching books:", error);
       res.status(500).json({ message: "Failed to fetch books" });
@@ -113,11 +118,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       
-      // In a real implementation, this would call the Upstart Commerce API
-      // const book = await getBookById(id);
+      // Call the Upstart Commerce API
+      const book = await getBookById(id);
       
-      // For development, we'll use mock data
-      const book = mockBooks.find(b => b.id === id);
+      // Use mock data as fallback for development if API call returns no results
+      if (!book && process.env.NODE_ENV !== 'production') {
+        console.warn(`No book with id ${id} returned from API, using mock data for development`);
+        const mockBook = mockBooks.find(b => b.id === id);
+        
+        if (!mockBook) {
+          return res.status(404).json({ message: "Book not found" });
+        }
+        
+        return res.json({ book: mockBook });
+      }
       
       if (!book) {
         return res.status(404).json({ message: "Book not found" });
@@ -132,11 +146,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/categories", async (_req: Request, res: Response) => {
     try {
-      // In a real implementation, this would call the Upstart Commerce API
-      // const result = await getCategories();
+      // Get categories from Upstart Commerce API
+      const result = await getCategories();
       
-      // For development, we'll use mock data
-      res.json({ categories: mockCategories });
+      // If we have categories from the API, use them
+      if (result.categories.length > 0) {
+        res.json(result);
+      } else {
+        // For development, use mock data if API returns no categories
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('No categories returned from API, using mock data for development');
+          res.json({ categories: mockCategories });
+        } else {
+          // In production, return whatever the API gave us (empty array)
+          res.json(result);
+        }
+      }
     } catch (error) {
       console.error("Error fetching categories:", error);
       res.status(500).json({ message: "Failed to fetch categories" });
@@ -151,23 +176,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let total = 0;
       const items = await Promise.all(cartItems.map(async item => {
-        // In a real implementation, we'd look up the book details from the database
-        // or Upstart Commerce API to get the latest price and data
-        const book = mockBooks.find(b => b.id === item.bookId);
-        if (book) {
-          const itemTotal = book.price.amount * item.quantity;
-          total += itemTotal;
+        try {
+          // Try to get real book data from the API
+          const book = await getBookById(item.bookId);
           
-          return {
-            id: item.id,
-            bookId: item.bookId,
-            title: book.title,
-            author: book.author,
-            price: book.price.amount,
-            imageUrl: book.images[0]?.url || '',
-            quantity: item.quantity
-          };
+          if (book) {
+            const itemTotal = book.price.amount * item.quantity;
+            total += itemTotal;
+            
+            return {
+              id: item.id,
+              bookId: item.bookId,
+              title: book.title,
+              author: book.author,
+              price: book.price.amount,
+              imageUrl: book.images[0]?.url || '',
+              quantity: item.quantity
+            };
+          }
+        } catch (bookError) {
+          console.warn(`Could not fetch real book data for ${item.bookId}, will try mock data`);
         }
+        
+        // Fallback to mock data if API call fails or book not found
+        if (process.env.NODE_ENV !== 'production') {
+          const mockBook = mockBooks.find(b => b.id === item.bookId);
+          if (mockBook) {
+            const itemTotal = mockBook.price.amount * item.quantity;
+            total += itemTotal;
+            
+            return {
+              id: item.id,
+              bookId: item.bookId,
+              title: mockBook.title,
+              author: mockBook.author,
+              price: mockBook.price.amount,
+              imageUrl: mockBook.images[0]?.url || '',
+              quantity: item.quantity
+            };
+          }
+        }
+        
         return null;
       }));
       
@@ -195,12 +244,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validatedData = schema.parse(req.body);
       
-      // Check if the book exists
-      const book = mockBooks.find(b => b.id === validatedData.bookId);
-      if (!book) {
-        return res.status(404).json({ message: "Book not found" });
-      }
-      
       // Check if the item is already in the cart
       const existingItem = await storage.getCartItem(sessionId, validatedData.bookId);
       
@@ -225,12 +268,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Try to get the book from the API
+      let bookPrice: number;
+      try {
+        const book = await getBookById(validatedData.bookId);
+        if (book) {
+          bookPrice = book.price.amount;
+        } else {
+          // If book not found in API and we're in development, try mock data
+          if (process.env.NODE_ENV !== 'production') {
+            const mockBook = mockBooks.find(b => b.id === validatedData.bookId);
+            if (mockBook) {
+              bookPrice = mockBook.price.amount;
+            } else {
+              return res.status(404).json({ message: "Book not found" });
+            }
+          } else {
+            return res.status(404).json({ message: "Book not found" });
+          }
+        }
+      } catch (error) {
+        // If API call fails and we're in development, try mock data
+        if (process.env.NODE_ENV !== 'production') {
+          const mockBook = mockBooks.find(b => b.id === validatedData.bookId);
+          if (mockBook) {
+            bookPrice = mockBook.price.amount;
+          } else {
+            return res.status(404).json({ message: "Book not found" });
+          }
+        } else {
+          console.error("Error fetching book:", error);
+          return res.status(500).json({ message: "Error fetching book details" });
+        }
+      }
+      
       // Add new item to cart
       const newCartItem = await storage.createCartItem({
         sessionId,
         bookId: validatedData.bookId,
         quantity: validatedData.quantity,
-        price: book.price.amount
+        price: bookPrice
       });
       
       res.status(201).json({
