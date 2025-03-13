@@ -32,21 +32,21 @@ export default function MobileMenu({ show, toggleMenu }: MobileMenuProps) {
             Home
           </Link>
           <Link 
-            href="/?category=all" 
+            href="/search?category=all" 
             className="py-2 px-4 hover:bg-gray-100 rounded-md"
             onClick={toggleMenu}
           >
             Categories
           </Link>
           <Link 
-            href="/?sort=newest" 
+            href="/search?sort=newest" 
             className="py-2 px-4 hover:bg-gray-100 rounded-md"
             onClick={toggleMenu}
           >
             New Arrivals
           </Link>
           <Link 
-            href="/" 
+            href="/search?sort=rating" 
             className="py-2 px-4 hover:bg-gray-100 rounded-md"
             onClick={toggleMenu}
           >

@@ -40,6 +40,35 @@ export interface UpstartBooksResponse {
   };
 }
 
+// Search API Types
+export interface UpstartSearchFacet {
+  code: string;
+  name: string;
+  type: "TERMS" | "RANGE" | "HIERARCHICAL";
+  values: Array<{
+    value: string | number;
+    name: string;
+    count: number;
+    selected?: boolean;
+  }>;
+}
+
+export interface UpstartSearchResponse {
+  items: UpstartBook[];
+  facets: UpstartSearchFacet[];
+  pagination: {
+    totalCount: number;
+    pageSize: number;
+    currentPage: number;
+    totalPages: number;
+  };
+  sort?: {
+    field: string;
+    direction: "asc" | "desc";
+  };
+  query?: string;
+}
+
 export interface UpstartCategory {
   id: string;
   name: string;

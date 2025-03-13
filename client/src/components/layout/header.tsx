@@ -26,9 +26,8 @@ export default function Header() {
   
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    handleSearch();
-    if (location !== "/") {
-      navigate("/");
+    if (searchQuery.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
   
@@ -63,13 +62,13 @@ export default function Header() {
         
         {/* Navigation */}
         <nav className="flex items-center space-x-6">
-          <Link href="/?category=all" className="hidden md:block text-gray-600 hover:text-primary transition-colors">
+          <Link href="/search?category=all" className="hidden md:block text-gray-600 hover:text-primary transition-colors">
             Categories
           </Link>
-          <Link href="/?sort=newest" className="hidden md:block text-gray-600 hover:text-primary transition-colors">
+          <Link href="/search?sort=newest" className="hidden md:block text-gray-600 hover:text-primary transition-colors">
             New Arrivals
           </Link>
-          <Link href="/" className="hidden md:block text-gray-600 hover:text-primary transition-colors">
+          <Link href="/search?sort=rating" className="hidden md:block text-gray-600 hover:text-primary transition-colors">
             Best Sellers
           </Link>
           

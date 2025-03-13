@@ -7,6 +7,8 @@ import {
   getBooks, 
   getBookById, 
   getCategories,
+  searchBooks,
+  getSearchFacets,
   mockBooks,
   mockCategories
 } from "./api/upstart";
@@ -165,6 +167,267 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching categories:", error);
       res.status(500).json({ message: "Failed to fetch categories" });
+    }
+  });
+  
+  // Advanced Search API
+  app.get("/api/search", async (req: Request, res: Response) => {
+    try {
+      // Extract search parameters from query
+      const query = req.query.q as string;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 12;
+      
+      // Parse filter parameters
+      const filters: Record<string, string | number | Array<string | number>> = {};
+      
+      // Handle category filters
+      if (req.query.category && req.query.category !== 'all') {
+        filters['category.id'] = req.query.category as string;
+      }
+      
+      // Handle price range filters
+      const minPrice = req.query.minPrice ? parseFloat(req.query.minPrice as string) : undefined;
+      const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : undefined;
+      if (minPrice !== undefined || maxPrice !== undefined) {
+        const priceValues: Array<string | number> = [];
+        if (minPrice !== undefined) {
+          priceValues.push(`>=${minPrice}`);
+        }
+        if (maxPrice !== undefined) {
+          priceValues.push(`<=${maxPrice}`);
+        }
+        filters['price.amount'] = priceValues;
+      }
+      
+      // Handle format filters
+      if (req.query.format) {
+        const formats = Array.isArray(req.query.format) 
+          ? req.query.format as string[]
+          : [req.query.format as string];
+        if (formats.length > 0) {
+          filters['attributes.format'] = formats;
+        }
+      }
+      
+      // Handle rating filter
+      if (req.query.rating) {
+        filters['attributes.rating'] = `>=${req.query.rating}`;
+      }
+      
+      // Handle publication year filter
+      if (req.query.year) {
+        const years = Array.isArray(req.query.year) 
+          ? req.query.year as string[]
+          : [req.query.year as string];
+        if (years.length > 0) {
+          filters['attributes.publicationYear'] = years.map(y => parseInt(y));
+        }
+      }
+      
+      // Handle sorting
+      let sort: { field: string; direction: 'asc' | 'desc' } | undefined;
+      if (req.query.sort) {
+        const sortValue = req.query.sort as string;
+        switch (sortValue) {
+          case 'price-low-high':
+            sort = { field: 'price.amount', direction: 'asc' };
+            break;
+          case 'price-high-low':
+            sort = { field: 'price.amount', direction: 'desc' };
+            break;
+          case 'newest':
+            sort = { field: 'attributes.publicationYear', direction: 'desc' };
+            break;
+          case 'rating':
+            sort = { field: 'attributes.rating', direction: 'desc' };
+            break;
+          // Default sorting is handled by the API
+        }
+      }
+      
+      // Specify which facets we want
+      const facets = [
+        'category',
+        'price.amount',
+        'attributes.format',
+        'attributes.publicationYear',
+        'attributes.rating'
+      ];
+      
+      // Call the enhanced search API
+      const searchResult = await searchBooks({
+        query,
+        page,
+        limit,
+        filters,
+        facets,
+        sort
+      });
+      
+      // Development fallback if needed
+      if (searchResult.items.length === 0 && process.env.NODE_ENV !== 'production') {
+        console.warn('No search results returned from API, using mock data for development');
+        
+        // Apply filters to mock data to simulate search
+        let filteredBooks = [...mockBooks];
+        
+        // Basic search by title or author
+        if (query) {
+          const queryLower = query.toLowerCase();
+          filteredBooks = filteredBooks.filter(book => 
+            book.title.toLowerCase().includes(queryLower) || 
+            book.author.toLowerCase().includes(queryLower) ||
+            book.description.toLowerCase().includes(queryLower)
+          );
+        }
+        
+        // Apply category filter
+        if (filters['category.id']) {
+          const category = filters['category.id'] as string;
+          filteredBooks = filteredBooks.filter(book => 
+            book.categories.some(cat => cat.id === category)
+          );
+        }
+        
+        // Apply price filter
+        if (filters['price.amount']) {
+          const priceValues = filters['price.amount'] as string[];
+          filteredBooks = filteredBooks.filter(book => {
+            for (const priceValue of priceValues) {
+              if (priceValue.startsWith('>=')) {
+                const minPrice = parseFloat(priceValue.substring(2));
+                if (book.price.amount < minPrice) return false;
+              } else if (priceValue.startsWith('<=')) {
+                const maxPrice = parseFloat(priceValue.substring(2));
+                if (book.price.amount > maxPrice) return false;
+              }
+            }
+            return true;
+          });
+        }
+        
+        // Apply format filter
+        if (filters['attributes.format']) {
+          const formats = filters['attributes.format'] as string[];
+          filteredBooks = filteredBooks.filter(book => 
+            formats.includes(book.attributes.format || '')
+          );
+        }
+        
+        // Apply rating filter
+        if (filters['attributes.rating']) {
+          const ratingValue = filters['attributes.rating'] as string;
+          if (ratingValue.startsWith('>=')) {
+            const minRating = parseFloat(ratingValue.substring(2));
+            filteredBooks = filteredBooks.filter(book => 
+              (book.attributes.rating || 0) >= minRating
+            );
+          }
+        }
+        
+        // Apply publication year filter
+        if (filters['attributes.publicationYear']) {
+          const years = filters['attributes.publicationYear'] as number[];
+          filteredBooks = filteredBooks.filter(book => 
+            years.includes(book.attributes.publicationYear || 0)
+          );
+        }
+        
+        // Apply sorting
+        if (sort) {
+          switch (sort.field) {
+            case 'price.amount':
+              filteredBooks.sort((a, b) => 
+                sort.direction === 'asc' 
+                  ? a.price.amount - b.price.amount
+                  : b.price.amount - a.price.amount
+              );
+              break;
+            case 'attributes.publicationYear':
+              filteredBooks.sort((a, b) => 
+                sort.direction === 'asc'
+                  ? (a.attributes.publicationYear || 0) - (b.attributes.publicationYear || 0)
+                  : (b.attributes.publicationYear || 0) - (a.attributes.publicationYear || 0)
+              );
+              break;
+            case 'attributes.rating':
+              filteredBooks.sort((a, b) => 
+                sort.direction === 'asc'
+                  ? (a.attributes.rating || 0) - (b.attributes.rating || 0)
+                  : (b.attributes.rating || 0) - (a.attributes.rating || 0)
+              );
+              break;
+          }
+        }
+        
+        // Pagination
+        const offset = (page - 1) * limit;
+        const paginatedBooks = filteredBooks.slice(offset, offset + limit);
+        
+        // Generate mock facets based on all books for development
+        const mockFacets = [
+          {
+            code: 'category',
+            name: 'Category',
+            type: 'TERMS' as const,
+            values: mockCategories
+              .filter(cat => cat.id !== 'all')
+              .map(cat => ({
+                value: cat.id,
+                name: cat.name,
+                count: mockBooks.filter(book => 
+                  book.categories.some(c => c.id === cat.id)
+                ).length,
+                selected: filters['category.id'] === cat.id
+              }))
+          },
+          {
+            code: 'attributes.format',
+            name: 'Format',
+            type: 'TERMS' as const,
+            values: Array.from(new Set(mockBooks.map(book => book.attributes.format)))
+              .filter(Boolean)
+              .map(format => ({
+                value: format as string,
+                name: format as string,
+                count: mockBooks.filter(book => book.attributes.format === format).length,
+                selected: Array.isArray(filters['attributes.format']) && 
+                  filters['attributes.format'].includes(format as string)
+              }))
+          }
+        ];
+        
+        res.json({
+          items: paginatedBooks,
+          facets: mockFacets,
+          pagination: {
+            totalCount: filteredBooks.length,
+            pageSize: limit,
+            currentPage: page,
+            totalPages: Math.ceil(filteredBooks.length / limit)
+          },
+          query,
+          sort
+        });
+      } else {
+        // Return the actual API response
+        res.json(searchResult);
+      }
+    } catch (error) {
+      console.error("Error during search:", error);
+      res.status(500).json({ message: "Failed to perform search" });
+    }
+  });
+  
+  // Get available search facets
+  app.get("/api/search/facets", async (_req: Request, res: Response) => {
+    try {
+      const facets = await getSearchFacets();
+      res.json({ facets });
+    } catch (error) {
+      console.error("Error fetching search facets:", error);
+      res.status(500).json({ message: "Failed to fetch search facets" });
     }
   });
 

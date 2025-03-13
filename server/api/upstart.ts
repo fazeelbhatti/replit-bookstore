@@ -1,5 +1,11 @@
 import axios from 'axios';
-import { type UpstartBooksResponse, type UpstartBook, type UpstartCategoriesResponse } from '@shared/types';
+import { 
+  type UpstartBooksResponse, 
+  type UpstartBook, 
+  type UpstartCategoriesResponse,
+  type UpstartSearchResponse,
+  type UpstartSearchFacet
+} from '@shared/types';
 
 // Upstart Commerce API configuration
 const UPSTART_API_BASE_URL = process.env.UPSTART_API_URL || 'https://api.upstartcommerce.com/v1';
@@ -136,31 +142,125 @@ export async function getCategories(): Promise<UpstartCategoriesResponse> {
   }
 }
 
-// Search functionality
-export async function searchBooks(query: string, options?: {
+/**
+ * Enhanced search functionality using Upstart Search API
+ * 
+ * @param query - Search query string
+ * @param options - Search options including pagination, filters, facets, and sorting
+ * @returns Search response with items, facets, and pagination
+ */
+export async function searchBooks(options: {
+  query?: string;
   page?: number;
   limit?: number;
-}): Promise<UpstartBooksResponse> {
+  filters?: Record<string, string | number | Array<string | number>>;
+  facets?: string[];
+  sort?: {
+    field: string;
+    direction: 'asc' | 'desc';
+  };
+}): Promise<UpstartSearchResponse> {
   try {
+    // Base search parameters
     const params: any = {
-      q: query,
-      page: options?.page || 1,
-      size: options?.limit || 12
+      page: options.page || 1,
+      size: options.limit || 12
     };
     
-    const response = await upstartApi.get<UpstartBooksResponse>('/catalog/search', { params });
-    return response.data;
-  } catch (error) {
-    console.error(`Failed to search books with query "${query}" from Upstart Commerce API`, error);
+    // Add search query if provided
+    if (options.query && options.query.trim()) {
+      params.q = options.query.trim();
+    }
+    
+    // Add filters if provided
+    if (options.filters && Object.keys(options.filters).length > 0) {
+      const filterStrings: string[] = [];
+      
+      for (const [key, value] of Object.entries(options.filters)) {
+        if (Array.isArray(value)) {
+          // Handle array filters (OR condition)
+          const valueStr = value.join('|');
+          if (valueStr) {
+            filterStrings.push(`${key}:(${valueStr})`);
+          }
+        } else if (value !== null && value !== undefined && value !== '') {
+          // Handle single value filters
+          filterStrings.push(`${key}:${value}`);
+        }
+      }
+      
+      if (filterStrings.length > 0) {
+        params.filter = filterStrings.join(' AND ');
+      }
+    }
+    
+    // Add facets if provided
+    if (options.facets && options.facets.length > 0) {
+      params.facets = options.facets.join(',');
+    }
+    
+    // Add sorting if provided
+    if (options.sort) {
+      params.sort = `${options.sort.field},${options.sort.direction}`;
+    }
+    
+    // Make the search API call
+    const response = await upstartApi.get<UpstartSearchResponse>('/search/products', { params });
+    
+    // Transform response if needed to match our expected format
+    // This depends on the actual response format from Upstart Search API
     return {
-      books: [],
+      items: response.data.items || [],
+      facets: response.data.facets || [],
+      pagination: response.data.pagination || {
+        totalCount: 0,
+        pageSize: options.limit || 12,
+        currentPage: options.page || 1,
+        totalPages: 0
+      },
+      sort: options.sort,
+      query: options.query
+    };
+  } catch (error) {
+    console.error('Failed to search books using Upstart Search API', error);
+    
+    // Check if API key is missing
+    if (UPSTART_API_KEY === '') {
+      console.error('Missing Upstart API Key. Please provide a valid API key.');
+    }
+    
+    // Return empty response structure for error case
+    return {
+      items: [],
+      facets: [],
       pagination: {
         totalCount: 0,
-        pageSize: 0,
-        currentPage: 0,
+        pageSize: options.limit || 12,
+        currentPage: options.page || 1,
         totalPages: 0
-      }
+      },
+      query: options.query
     };
+  }
+}
+
+/**
+ * Get available search facets
+ * This can be used to populate filter UI components
+ */
+export async function getSearchFacets(): Promise<UpstartSearchFacet[]> {
+  try {
+    // Make a simple search with facets enabled but no query
+    // This should return all available facets
+    const response = await searchBooks({
+      limit: 1, // Minimize data transfer by only requesting 1 result
+      facets: ['category', 'price.amount', 'attributes.format', 'attributes.publicationYear', 'attributes.rating']
+    });
+    
+    return response.facets || [];
+  } catch (error) {
+    console.error('Failed to fetch search facets', error);
+    return [];
   }
 }
 
