@@ -111,6 +111,13 @@ export class MemStorage implements IStorage {
     const book: Book = { 
       ...insertBook, 
       id,
+      imageUrl: insertBook.imageUrl || null,
+      rating: insertBook.rating || null,
+      reviewCount: insertBook.reviewCount || null,
+      isBestSeller: insertBook.isBestSeller || false,
+      isNewRelease: insertBook.isNewRelease || false,
+      discount: insertBook.discount || 0,
+      publicationYear: insertBook.publicationYear || null,
       createdAt: new Date() 
     };
     this.books.set(id, book);
@@ -135,6 +142,8 @@ export class MemStorage implements IStorage {
     const cartItem: CartItem = { 
       ...insertCartItem, 
       id,
+      userId: insertCartItem.userId || null,
+      quantity: insertCartItem.quantity || 1,
       createdAt: new Date()
     };
     this.cartItems.set(id, cartItem);
@@ -169,7 +178,16 @@ export class MemStorage implements IStorage {
   // Order methods
   async createOrder(insertOrder: InsertOrder): Promise<Order> {
     const id = this.orderCurrentId++;
-    const order: Order = { ...insertOrder, id };
+    const order: Order = { 
+      ...insertOrder, 
+      id,
+      status: insertOrder.status || "pending",
+      userId: insertOrder.userId || null,
+      shippingAddress: insertOrder.shippingAddress || null,
+      billingAddress: insertOrder.billingAddress || null,
+      paymentMethod: insertOrder.paymentMethod || null,
+      createdAt: new Date() 
+    };
     this.orders.set(id, order);
     return order;
   }
